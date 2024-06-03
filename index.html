@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Internet users and urban population visualization</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <script src="https://unpkg.com/topojson@3.0.2/dist/topojson.min.js"></script>
+    <style>
+        path {
+            fill: none;
+            stroke: black;
+            stroke-width: 0.5;
+        }
+
+        #container {
+            display: flex;
+        }
+
+        #map-container {
+            flex: 1;
+            padding-top: 10px;
+        }
+
+        #chart-container {
+            flex: 1;
+        }
+
+        #legend-container {
+            display: flex;
+            justify-content: left;
+            margin: 10px 0 30px 150px;
+        }
+
+        .legend-text {
+            font-size: 10px;
+            fill: black;
+        }
+    </style>
+</head>
+<body>
+    <div>
+        <label for="variable">Option:</label>
+        <select id="variable">
+            <option value="InternetUsers">Internet Users (%)</option>
+            <option value="UrbanPopulation">Urban population (%)</option>
+        </select>
+    </div>
+    <div id="container">
+        <div id="map-container">
+            <svg id="map" width="800" height="600"></svg>
+            <div id="legend-container"></div>
+        </div>
+        <div id="chart-container">
+            <svg id="chart"></svg>
+        </div>
+    </div>
+    <div>
+        <label for="year">Year:</label>
+        <input type="range" id="year" min="1980" max="2020" step="1" value="1980">
+        <span id="yearValue">1980</span>
+    </div>
+    <h2>Description:</h2>
+    <ul>
+        <li><b>Internet Users (%):</b> Percentage of internet users for each country</li>
+        <li><b>Urban population (%):</b> Percentage of urban population for each country</li> 
+    </ul>
+    <script>
+        const width = 800;
+        const height = 600;
+
+        const svg = d3.select("#map")
+            .attr("width", width)
+            .attr("height", height);
+
+        const g = svg.append("g");
+
+        const zoom = d3.zoom()
+            .scaleExtent([1, 8])
+            .on("zoom", function () {
+                g.attr("transform", d3.zoomTransform(this));
+            });
+
+        svg.call(zoom);
+
+        const projection = d3.geoNaturalEarth1()
+            .translate([width / 2, height / 2])
+            .scale(170)
+            .center([0, 25]);
+
+        const pathGenerator = d3.geoPath().projection(projection);
+
+        const mapColorScale = d3.scaleSequential()
+            .domain([0, 100])
+            .interpolator(d3.interpolateRgb("white", "green"));
+
+        const yearSlider = document.getElementById("year");
+        const yearValue = document.getElementById("yearValue");
+
+        yearSlider.addEventListener("input", function () {
+            yearValue.textContent = yearSlider.value;
+            updateMap();
+        });
+
+        let currentCountry = null;
+        const variableSelector = document.getElementById("variable");
+        variableSelector.addEventListener("change", function () {
+            updateChart(currentCountry);
+        });
+
+        d3.json("https://raw.githubusercontent.com/martynafford/natural-earth-geojson/master/110m/cultural/ne_110m_admin_0_countries.json").then(data => {
+            g.selectAll("path")
+                .data(data.features)
+                .enter().append("path")
+                .attr("d", pathGenerator)
+                .style("fill", "gray")
+                .attr("class", d => d.properties.SOVEREIGNT)
+                .on("click", function (event, d) {
+                    if (event.button === 0) {
+                        const selectedYear = parseInt(yearSlider.value) || 1980;
+                        const selectedCountry = d.properties.SOVEREIGNT;
+                        currentCountry = selectedCountry;
+                        updateChart(selectedCountry);
+                    }
+                });
+
+            updateMap();
+            createLegend();
+        });
+
+        function updateMap() {
+            const selectedYear = parseInt(yearSlider.value) || 1980;
+            const selectedVariable = document.getElementById("variable").value;
+
+            d3.csv("assets/internet_percent.csv", (d) => {
+                return {
+                    Entity: d.Entity,
+                    Code: d.Code,
+                    Year: +d.Year,
+                    InternetUsers: +d["Internet Users(%)"],
+                    UrbanPopulation: +d["Urban population(%)"]
+                };
+            }).then((data) => {
+                const filteredData = data.filter((d) => d.Year === selectedYear);
+
+                g.selectAll("path")
+                    .style("fill", (d) => {
+                        const countryData = filteredData.find((row) => row.Entity === d.properties.NAME);
+                        if (countryData) {
+                            const value = countryData[selectedVariable];
+                            return mapColorScale(value);
+                        } else {
+                            return "gray";
+                        }
+                    });
+            });
+        }
+
+        function createLegend() {
+            const legendContainer = d3.select("#legend-container");
+            
+
+            const legendWidth = 500;
+            const legendHeight = 40;
+            const legendTicks = 15;
+            const stops = d3.range(legendTicks).map(d => d * legendTicks);
+
+            const legendScale = d3.scaleLinear()
+                .domain([0, 100])
+                .range([0, legendWidth]);
+
+            const legendSvg = legendContainer.append("svg")
+                .attr("width", legendWidth)
+                .attr("height", legendHeight);
+
+            const gradient = legendSvg.append("defs")
+                .append("linearGradient")
+                .attr("id", "legend-gradient")
+                .attr("x1", "0%")
+                .attr("y1", "0%")
+                .attr("x2", "100%")
+                .attr("y2", "0%");
+
+            gradient.selectAll("stop")
+                .data(stops)
+                .enter()
+                .append("stop")
+                .attr("offset", d => `${d}%`)
+                .attr("stop-color", d => mapColorScale(d));
+
+            legendSvg.append("rect")
+                .attr("x", 0)
+                .attr("y", 0)
+                .attr("width", legendWidth)
+                .attr("height", legendHeight)
+                .style("fill", "url(#legend-gradient)");
+
+            legendSvg.selectAll(".legend-label")
+                .data(stops)
+                .enter()
+                .append("text")
+                .attr("x", d => legendScale(d) + (legendWidth / (legendTicks - 1)) / 2)
+                .attr("y", legendHeight / 2)
+                .attr("dy", "0.3em")
+                .style("text-anchor", "middle")
+                .text(d => d);
+        }
+
+        function updateChart(selectedCountry) {
+            const chartContainer = d3.select("#chart-container");
+            chartContainer.selectAll("*").remove();
+
+            const margin = { top: 60, right: 25, bottom: 35, left: 50 };
+            const chartWidth = +chartContainer.style("width").replace("px", "") - margin.left - margin.right;
+            const chartHeight = +chartContainer.style("height").replace("px", "") - margin.top - margin.bottom;
+
+            const x = d3.scaleBand()
+                .rangeRound([0, chartWidth])
+                .padding(0.1);
+
+            const y = d3.scaleLinear()
+                .rangeRound([chartHeight, 0]);
+
+            const chartSvg = chartContainer.append("svg")
+                .attr("width", chartWidth + margin.left + margin.right)
+                .attr("height", chartHeight + margin.top + margin.bottom)
+                .append("g")
+                .attr("transform", `translate(${margin.left},${margin.top})`);
+
+            d3.csv("assets/internet_percent.csv", (d) => {
+                return {
+                    Entity: d.Entity,
+                    Code: d.Code,
+                    Year: +d.Year,
+                    InternetUsers: +d["Internet Users(%)"],
+                    UrbanPopulation: +d["Urban population(%)"],
+                };
+            }).then((data) => {
+                const selectedVariable = document.getElementById("variable").value;
+                const filteredData = data.filter((d) => d.Entity === selectedCountry);
+                const chartTitle = `${selectedCountry} - ${selectedVariable}`;
+
+                x.domain(filteredData.map((d) => d.Year));
+                y.domain([0, d3.max(filteredData, (d) => d[selectedVariable])]);
+
+                const line = d3.line()
+                    .x((d) => x(d.Year) + x.bandwidth() / 2)
+                    .y((d) => y(d[selectedVariable]));
+
+                chartSvg.append("path")
+                    .datum(filteredData)
+                    .attr("fill", "none")
+                    .attr("stroke", "steelblue")
+                    .attr("stroke-width", 1.5)
+                    .attr("d", line);
+
+                chartSvg.append("g")
+                    .attr("transform", `translate(0,${chartHeight})`)
+                    .call(d3.axisBottom(x).tickValues(x.domain().filter((d, i) => i % 5 === 0)))
+                    .selectAll("text")
+                    .attr("y", 0)
+                    .attr("x", -9)
+                    .attr("dy", ".35em")
+                    .attr("transform", "rotate(-90)")
+                    .style("text-anchor", "end");
+
+                chartSvg.append("g")
+                    .call(d3.axisLeft(y));
+            });
+        }
+    </script>
+</body>
+</html>
