@@ -149,7 +149,7 @@
                             const value = countryData[selectedVariable];
                             return mapColorScale(value);
                         } else {
-                            return "gray";
+                            return "red";
                         }
                     });
             });
@@ -265,6 +265,14 @@
 
                 chartSvg.append("g")
                     .call(d3.axisLeft(y));
+
+                chartSvg.append("text")
+                 .attr("x", chartWidth / 2)
+                 .attr("y", -30)
+                 .attr("text-anchor", "middle")
+                 .attr("font-size", "16px")
+                 .attr("font-weight", "bold")
+                 .text(chartTitle);
             });
         }
     </script>
